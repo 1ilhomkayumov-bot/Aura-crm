@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UzCRM</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+  body { -webkit-tap-highlight-color: transparent; }
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+</style>
+</head>
+<body class="bg-slate-50">
+<div id="root"><div style="padding:40px;text-align:center;color:#64748b;font:15px system-ui">Yuklanmoqda…</div></div>
+<script>
+  window.__err = function (t) {
+    document.getElementById("root").innerHTML =
+      '<div style="padding:24px;font:14px/1.5 system-ui;color:#0f172a">' +
+      '<div style="font-weight:700;font-size:16px;margin-bottom:8px">Xatolik yuz berdi</div>' +
+      '<div style="background:#fef2f2;color:#b91c1c;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word">' +
+      String(t).replace(/</g, "&lt;") + '</div>' +
+      '<div style="margin-top:12px;color:#64748b">Shu matnni suhbatga yuboring.</div></div>';
+  };
+  window.addEventListener("error", function (e) { window.__err(e.message || e.error); });
+  window.addEventListener("unhandledrejection", function (e) { window.__err(e.reason); });
+</script>
+
+<script type="text/babel">
+/* Sozlama config.js faylida */
+const SUPABASE_URL = window.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "";
+
+if (typeof React === "undefined") window.__err("React yuklanmadi. Internetni tekshiring.");
+if (typeof supabase === "undefined") window.__err("Supabase yuklanmadi. Internetni tekshiring.");
+
+const { useState, useEffect, useCallback, useMemo } = React;
+const db = SUPABASE_URL ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+const money = n => new Intl.NumberFormat("uz-UZ").format(Math.round(n || 0)) + " so'm";
+const today = () => new Date().toISOString().slice(0, 10);
+const shift = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const dur = s => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+const short = t => String(t || "").slice(0, 16).replace("T", " ");
+
+const CHANNELS = {
+  telegram: { label: "Telegram", color: "#0ea5e9" },
+  instagram: { label: "Instagram", color: "#d946ef" },
+  facebook: { label: "Facebook", color: "#2563eb" },
+  sms: { label: "SMS", color: "#16a34a" },
+};
+const PALETTE = ["#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af",
+  "#0ea5e9", "#16a34a", "#65a30d", "#f59e0b", "#f97316", "#ef4444", "#a855f7", "#94a3b8"];
+const PERMS = [
+  ["leads_view_all", "Barcha lidlarni ko'rish"],
+  ["leads_edit", "Lidni tahrirlash"],
+  ["leads_delete", "Lidni o'chirish"],
+  ["calls_listen", "Zapislarni eshitish"],
+  ["chat_write", "Chatda yozish"],
+  ["tasks_manage", "Zadacha boshqarish"],
+  ["products_manage", "Mahsulot va schyot"],
+  ["settings_access", "Sozlamalarga kirish"],
+];
+
+/* ================= UI ================= */
+
+const Btn = ({ children, onClick, kind = "primary", disabled, className = "", size }) => {
+  const st = {
+    primary: "bg-blue-600 text-white active:bg-blue-700",
+    ghost: "bg-white border border-slate-300 text-slate-700 active:bg-slate-100",
+    danger: "bg-red-500 text-white active:bg-red-600",
+  }[kind];
+  const pad = size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2.5 text-sm";
+  return <button onClick={onClick} disabled={disabled}
+    className={`rounded-lg font-medium disabled:opacity-40 ${pad} ${st} ${className}`}>{children}</button>;
+};
+
+const Input = props => <input {...props}
+  className={"w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 " + (props.className || "")} />;
+
+const Select = props => <select {...props}
+  className={"w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 " + (props.className || "")} />;
+
+const Avatar = ({ name = "?", size = 32 }) => (
+  <div className="rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold shrink-0"
+    style={{ width: size, height: size, fontSize: size * 0.4 }}>
+    {String(name).split(" ").map(w => w[0]).slice(0, 2).join("")}
+  </div>
+);
+
+const Spinner = () => (
+  <div className="flex justify-center py-14">
+    <div className="w-7 h-7 rounded-full animate-spin"
+      style={{ border: "3px solid #dbeafe", borderTopColor: "#2563eb" }} />
+  </div>
+);
+
+const Empty = ({ title, hint }) => (
+  <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center">
+    <div className="text-sm font-medium text-slate-800">{title}</div>
+    {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
+  </div>
+);
+
+const Card = ({ children, className = "" }) => (
+  <div className={"bg-white rounded-xl border border-slate-200 " + className}>{children}</div>
+);
+
+const Sheet = ({ open, onClose, children, wide }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        className={`bg-white w-full ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"} rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto shadow-2xl`}>
+        {children}
+      </div>
+    </div>
+  );
+};
+
+const Toggle = ({ on, onChange }) => (
+  <button onClick={() => onChange(!on)}
+    className={`w-11 h-6 rounded-full relative shrink-0 transition-colors ${on ? "bg-blue-600" : "bg-slate-300"}`}>
+    <span className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all" style={{ left: on ? 22 : 2 }} />
+  </button>
+);
+
+function humanError(e) {
+  const m = (e?.message || String(e)).replace(/^.*?:\s*/, "");
+  if (/Invalid login/i.test(m)) return "Email yoki parol noto'g'ri";
+  if (/limit|majburiy/i.test(m)) return m;
+  if (/row-level security|violates row-level/i.test(m)) return "Bu amalga ruxsatingiz yo'q";
+  if (/Failed to fetch|NetworkError/i.test(m)) return "Internetga ulanmadi";
+  return m;
+}
+
+/* Oddiy ustunli diagramma — qo'shimcha kutubxonasiz */
+const Bars = ({ data }) => {
+  const max = Math.max(1, ...data.map(d => d.v));
+  return (
+    <div className="flex items-end gap-2 h-40 pt-2">
+      {data.map((d, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+          <div className="text-[10px] text-slate-500 tabular-nums">{d.v}</div>
+          <div className="w-full rounded-t transition-all"
+            style={{ height: `${(d.v / max) * 100}%`, minHeight: d.v ? 4 : 2, background: d.c || "#2563eb" }} />
+          <div className="text-[10px] text-slate-500 text-center leading-tight truncate w-full">{d.n}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ================= Kirish ================= */
+
+function Login() {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    const { error } = await db.auth.signInWithPassword({ email: email.trim().toLowerCase(), password: pass });
+    if (error) { setErr(humanError(error)); setBusy(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-5">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="text-3xl font-bold text-blue-700 tracking-tight">UzCRM</div>
+          <div className="text-sm text-slate-500 mt-1">Savdo boshqaruv tizimi</div>
+        </div>
+        <Card className="p-6 space-y-4">
+          <div>
+            <div className="text-xs font-medium text-slate-500 mb-1.5">Email</div>
+            <Input type="email" value={email} autoCapitalize="none" autoCorrect="off"
+              onChange={e => { setEmail(e.target.value); setErr(""); }} />
+          </div>
+          <div>
+            <div className="text-xs font-medium text-slate-500 mb-1.5">Parol</div>
+            <Input type="password" value={pass} onChange={e => { setPass(e.target.value); setErr(""); }}
+              onKeyDown={e => e.key === "Enter" && submit()} />
+          </div>
+          {err && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2.5">{err}</div>}
+          <Btn onClick={submit} disabled={busy || !email || !pass} className="w-full">
+            {busy ? "Kirilmoqda…" : "Kirish"}
+          </Btn>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Platforma egasi ================= */
+
+function OwnerPanel({ onLogout }) {
+  const [tenants, setTenants] = useState(null);
+  const [msg, setMsg] = useState("");
+
+  const load = useCallback(async () => {
+    const { data, error } = await db.from("tenants").select("*").order("created_at");
+    if (error) setMsg(humanError(error)); else setTenants(data);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const act = async (fn, args, okMsg) => {
+    const { error } = await db.rpc(fn, args);
+    if (error) setMsg(humanError(error)); else { setMsg(okMsg || ""); load(); }
+  };
+
+  const active = (tenants || []).filter(t => t.status === "active");
+  const mrr = active.reduce((a, t) => a + Number(t.price), 0);
+
+  return (
+    <div className="min-h-screen">
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center sticky top-0 z-20">
+        <div>
+          <div className="font-bold text-blue-700">UzCRM</div>
+          <div className="text-xs text-slate-500">Platforma paneli</div>
+        </div>
+        <button onClick={onLogout} className="ml-auto text-sm text-slate-500">Chiqish</button>
+      </header>
+
+      <div className="p-4 space-y-4">
+        {msg && <div className="text-sm bg-blue-50 text-blue-800 rounded-lg px-3 py-2.5">{msg}</div>}
+        <div className="grid grid-cols-3 gap-3">
+          {[["Mijozlar", tenants?.length ?? "—"], ["Faol", active.length], ["Oylik", money(mrr)]].map(([k, v]) => (
+            <Card key={k} className="p-4">
+              <div className="text-xs text-slate-500">{k}</div>
+              <div className="text-base font-bold text-slate-900 mt-1 break-words">{v}</div>
+            </Card>
+          ))}
+        </div>
+
+        {tenants === null ? <Spinner /> : tenants.length === 0 ? (
+          <Empty title="Hali mijoz yo'q" hint="Yangi panel ochish uchun qo'llanmaga qarang." />
+        ) : tenants.map(t => (
+          <Card key={t.id} className="p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-slate-900">{t.name}</div>
+                <div className="text-xs text-slate-500">{t.owner_name} · {t.phone || "—"}</div>
+              </div>
+              <span className={`text-xs rounded-full px-2.5 py-1 font-medium shrink-0 ${
+                t.status === "active" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
+                {t.status === "active" ? "Faol" : "Bloklangan"}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+              <div><div className="text-slate-400">Tarif</div><div className="font-medium">{t.tariff}</div></div>
+              <div><div className="text-slate-400">Limit</div><div className="font-medium">{t.user_limit} kishi</div></div>
+              <div><div className="text-slate-400">To'lov</div>
+                <div className={`font-medium ${t.paid_till < today() ? "text-red-600" : ""}`}>{t.paid_till}</div></div>
+            </div>
+            <div className="flex gap-2 mt-3">
+              <Btn kind="ghost" className="flex-1"
+                onClick={() => act("extend_payment", { p_tenant: t.id, p_days: 30 }, "30 kunga uzaytirildi")}>+30 kun</Btn>
+              <Btn kind={t.status === "active" ? "danger" : "primary"} className="flex-1"
+                onClick={() => act("set_tenant_status", { p_tenant: t.id, p_status: t.status === "active" ? "blocked" : "active" })}>
+                {t.status === "active" ? "Bloklash" : "Ochish"}
+              </Btn>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ================= AI tahlil (brauzerda) ================= */
+
+function analyze(lead, extras, scenario) {
+  const { calls = [], messages = [], notes = [], tasks = [] } = extras;
+  const talk = calls.reduce((a, c) => a + (c.duration || 0), 0);
+  const out = messages.filter(m => m.direction === "out").length;
+  const inc = messages.filter(m => m.direction === "in").length;
+  const openT = tasks.filter(t => !t.done).length;
+  const days = Math.max(0, Math.round((Date.now() - new Date(lead.created_at)) / 86400000));
+  const checks = scenario.map((name, i) => {
+    const ok = [
+      calls.length > 0,
+      inc > 0 || calls.length > 0,
+      Number(lead.budget) > 0,
+      talk > 120,
+      out >= inc && inc > 0,
+      openT > 0,
+      out > 0 || notes.length > 0,
+    ][i] ?? false;
+    return { name, ok, comment: ok ? "Bajarilgan" : "Tizimda iz qolmagan" };
+  });
+  const score = Math.round((checks.filter(c => c.ok).length / Math.max(1, checks.length)) * 100);
+  const mistakes = [];
+  if (!calls.length) mistakes.push("Birorta qo'ng'iroq qilinmagan");
+  if (!openT) mistakes.push("Keyingi qadam belgilanmagan — lid nazoratsiz");
+  if (days > 5 && calls.length < 2) mistakes.push(`Lid ${days} kundan beri ochiq, aloqa kam`);
+  if (inc > out) mistakes.push("Mijoz javob kutmoqda");
+  if (talk > 0 && talk < 60) mistakes.push("Suhbat juda qisqa, ehtiyoj aniqlanmagan");
+  if (!Number(lead.budget)) mistakes.push("Byudjet kiritilmagan");
+  const advice = [];
+  if (!openT) advice.push("Bugunga aniq vaqtli zadacha qo'ying");
+  if (inc > out) advice.push("Javobsiz xabarga tez javob bering");
+  if (calls.length < 2) advice.push("Yozishmadan qo'ng'iroqqa o'ting");
+  if (!advice.length) advice.push("Lid to'g'ri yuritilmoqda");
+  const quality = score >= 70 ? "issiq" : score >= 40 ? "iliq" : "sovuq";
+  return {
+    score, quality, checks, mistakes: mistakes.slice(0, 5), advice: advice.slice(0, 3),
+    summary: `Skript bo'yicha ${checks.filter(c => c.ok).length}/${checks.length} band bajarilgan.`,
+    at: new Date().toISOString(),
+  };
+}
+
+const Ring = ({ score, size = 56 }) => {
+  const c = score >= 70 ? "#16a34a" : score >= 40 ? "#f59e0b" : "#ef4444";
+  const r = (size - 7) / 2, circ = 2 * Math.PI * r;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={c} strokeWidth="5" strokeLinecap="round"
+          strokeDasharray={circ} strokeDashoffset={circ * (1 - score / 100)} />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center font-bold text-slate-900"
+        style={{ fontSize: size * 0.28 }}>{score}</div>
+    </div>
+  );
+};
+
+/* ================= Lid kartochkasi ================= */
+
+function LeadSheet({ lead, stages, people, products, scenario, can, onClose, onSaved }) {
+  const [tab, setTab] = useState("info");
+  const [form, setForm] = useState({ stage_id: lead.stage_id, budget: lead.budget, owner_id: lead.owner_id || "" });
+  const [d, setD] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [chat, setChat] = useState({ channel: "telegram", body: "" });
+  const [task, setTask] = useState({ body: "", due_date: today(), due_time: "10:00", kind: "call" });
+  const [pick, setPick] = useState("");
+  const [ai, setAi] = useState(lead.ai);
+
+  const reload = useCallback(async () => {
+    const [n, t, c, m, it] = await Promise.all([
+      db.from("notes").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }),
+      db.from("tasks").select("*").eq("lead_id", lead.id).order("due_date"),
+      db.from("calls").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }),
+      db.from("messages").select("*").eq("lead_id", lead.id).order("created_at"),
+      db.from("lead_items").select("*").eq("lead_id", lead.id),
+    ]);
+    setD({ notes: n.data || [], tasks: t.data || [], calls: c.data || [], messages: m.data || [], items: it.data || [] });
+  }, [lead.id]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const run = async (p, after) => {
+    setMsg("");
+    const { error } = await p;
+    if (error) return setMsg(humanError(error));
+    after && after();
+    reload();
+  };
+
+  const save = async () => {
+    setBusy(true); setMsg("");
+    const { error } = await db.from("leads").update({
+      stage_id: form.stage_id, budget: Number(form.budget) || 0, owner_id: form.owner_id || null,
+    }).eq("id", lead.id);
+    setBusy(false);
+    if (error) return setMsg(humanError(error));
+    onSaved(); onClose();
+  };
+
+  const itemsTotal = (d?.items || []).reduce((a, it) => {
+    const p = products.find(x => x.id === it.product_id);
+    return a + (p ? Number(p.price) * it.qty : 0);
+  }, 0);
+
+  const runAi = async () => {
+    const res = analyze(lead, d || {}, scenario);
+    setAi(res);
+    await db.from("leads").update({ ai: res }).eq("id", lead.id);
+    onSaved();
+  };
+
+  const tabs = [["info", "Ma'lumot"], ["chat", "Chat"], ["items", "Mahsulot"],
+  ["task", "Zadacha"], ["note", "Izoh"], ["ai", "AI"]];
+
+  return (
+    <div>
+      <div className="p-5 border-b border-slate-200 flex items-start gap-3 sticky top-0 bg-white z-10">
+        <div className="flex-1 min-w-0">
+          <div className="text-lg font-bold text-slate-900">{lead.name}</div>
+          <div className="text-sm text-slate-500">{lead.phone || "raqam yo'q"} · {lead.source}</div>
+        </div>
+        {ai && <Ring score={ai.score} size={44} />}
+        <button onClick={onClose} className="text-slate-400 text-2xl leading-none px-2">×</button>
+      </div>
+
+      <div className="flex gap-1 px-4 pt-3 overflow-x-auto">
+        {tabs.map(([k, t]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`text-sm px-3 py-2 rounded-lg font-medium whitespace-nowrap ${tab === k ? "bg-blue-50 text-blue-700" : "text-slate-500"}`}>{t}</button>
+        ))}
+      </div>
+
+      <div className="p-5 space-y-4">
+        {msg && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2.5">{msg}</div>}
+        {!d ? <Spinner /> : <>
+
+          {tab === "info" && <>
+            <div>
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Bosqich</div>
+              <Select value={form.stage_id} onChange={e => setForm({ ...form, stage_id: e.target.value })}>
+                {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Byudjet</div>
+              <Input type="number" inputMode="numeric" value={form.budget}
+                onChange={e => setForm({ ...form, budget: e.target.value })} />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Mas'ul menejer</div>
+              <Select value={form.owner_id || ""} onChange={e => setForm({ ...form, owner_id: e.target.value })}>
+                <option value="">Tayinlanmagan</option>
+                {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+            </div>
+            <div className="text-xs text-slate-500">Yaratilgan: {short(lead.created_at)}</div>
+            <Btn onClick={save} disabled={busy} className="w-full">{busy ? "Saqlanmoqda…" : "Saqlash"}</Btn>
+          </>}
+
+          {tab === "chat" && <>
+            <div className="space-y-2">
+              {d.messages.map(m => (
+                <div key={m.id} className={`flex ${m.direction === "out" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 ${m.direction === "out" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-800"}`}>
+                    <div className="text-sm">{m.body}</div>
+                    <div className={`text-[10px] mt-0.5 ${m.direction === "out" ? "text-blue-200" : "text-slate-400"}`}>
+                      {CHANNELS[m.channel]?.label} · {short(m.created_at)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!d.messages.length && <div className="text-sm text-slate-400 text-center py-6">Yozishma yo'q</div>}
+            </div>
+            {can("chat_write") ? (
+              <div className="flex gap-2">
+                <Select value={chat.channel} className="w-32"
+                  onChange={e => setChat({ ...chat, channel: e.target.value })}>
+                  {Object.entries(CHANNELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </Select>
+                <Input placeholder="Xabar…" value={chat.body} onChange={e => setChat({ ...chat, body: e.target.value })} />
+                <Btn onClick={() => chat.body.trim() && run(
+                  db.from("messages").insert({ lead_id: lead.id, channel: chat.channel, direction: "out", body: chat.body.trim() }),
+                  () => setChat({ ...chat, body: "" }))}>→</Btn>
+              </div>
+            ) : <div className="text-xs text-slate-400">Chatda yozish huquqi yo'q</div>}
+          </>}
+
+          {tab === "items" && <>
+            {can("products_manage") && (
+              <div className="flex gap-2">
+                <Select value={pick} onChange={e => setPick(e.target.value)}>
+                  <option value="">Mahsulot tanlang…</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} — {money(p.price)}</option>)}
+                </Select>
+                <Btn onClick={() => pick && run(
+                  db.from("lead_items").insert({ lead_id: lead.id, product_id: pick, qty: 1 }),
+                  () => setPick(""))}>+</Btn>
+              </div>
+            )}
+            <div className="space-y-2">
+              {d.items.map(it => {
+                const p = products.find(x => x.id === it.product_id);
+                if (!p) return null;
+                return (
+                  <div key={it.id} className="flex items-center gap-2 bg-slate-50 rounded-lg p-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-slate-800 truncate">{p.name}</div>
+                      <div className="text-xs text-slate-500">{money(p.price)} / {p.unit}</div>
+                    </div>
+                    <input type="number" min="1" value={it.qty} className="w-16 border border-slate-300 rounded-lg px-2 py-1 text-sm text-center"
+                      onChange={e => run(db.from("lead_items").update({ qty: Math.max(1, +e.target.value) }).eq("id", it.id))} />
+                    <button className="text-slate-400 px-1"
+                      onClick={() => run(db.from("lead_items").delete().eq("id", it.id))}>×</button>
+                  </div>
+                );
+              })}
+              {!d.items.length && <div className="text-sm text-slate-400 text-center py-6">Mahsulot qo'shilmagan</div>}
+            </div>
+            {d.items.length > 0 && (
+              <div className="bg-blue-50 rounded-lg p-4 text-sm">
+                <div className="flex justify-between text-slate-600"><span>Summa</span><span>{money(itemsTotal)}</span></div>
+                <div className="flex justify-between text-slate-600 mt-1"><span>QQS 12%</span><span>{money(itemsTotal * 0.12)}</span></div>
+                <div className="flex justify-between font-bold text-slate-900 mt-2 pt-2 border-t border-blue-200">
+                  <span>Jami</span><span>{money(itemsTotal * 1.12)}</span></div>
+                <Btn className="w-full mt-3" onClick={() => run(
+                  db.from("leads").update({ budget: Math.round(itemsTotal * 1.12) }).eq("id", lead.id),
+                  () => { setForm({ ...form, budget: Math.round(itemsTotal * 1.12) }); onSaved(); })}>
+                  Byudjetga o'tkazish
+                </Btn>
+              </div>
+            )}
+          </>}
+
+          {tab === "task" && <>
+            <Input placeholder="Zadacha matni" value={task.body} onChange={e => setTask({ ...task, body: e.target.value })} />
+            <div className="flex gap-2">
+              <Input type="date" value={task.due_date} onChange={e => setTask({ ...task, due_date: e.target.value })} />
+              <Input type="time" value={task.due_time} onChange={e => setTask({ ...task, due_time: e.target.value })} />
+            </div>
+            <Select value={task.kind} onChange={e => setTask({ ...task, kind: e.target.value })}>
+              <option value="call">Qo'ng'iroq</option><option value="meet">Uchrashuv</option><option value="task">Boshqa</option>
+            </Select>
+            <Btn className="w-full" onClick={() => task.body.trim() && run(
+              db.from("tasks").insert({ lead_id: lead.id, ...task }),
+              () => setTask({ body: "", due_date: today(), due_time: "10:00", kind: "call" }))}>Qo'shish</Btn>
+            <div className="space-y-2">
+              {d.tasks.map(t => (
+                <label key={t.id} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                  <input type="checkbox" checked={t.done} className="w-5 h-5 accent-blue-600"
+                    onChange={() => run(db.from("tasks").update({ done: !t.done }).eq("id", t.id))} />
+                  <span className={`text-sm flex-1 ${t.done ? "line-through text-slate-400" : "text-slate-800"}`}>{t.body}</span>
+                  <span className="text-xs text-slate-500">{t.due_date} {String(t.due_time).slice(0, 5)}</span>
+                </label>
+              ))}
+              {!d.tasks.length && <div className="text-sm text-slate-400 text-center py-4">Zadacha yo'q</div>}
+            </div>
+          </>}
+
+          {tab === "note" && <>
+            <textarea rows={3} value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Izoh yozing…"
+              className="w-full border border-slate-300 rounded-lg p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <Btn className="w-full" onClick={() => noteText.trim() && run(
+              db.from("notes").insert({ lead_id: lead.id, body: noteText.trim() }), () => setNoteText(""))}>Saqlash</Btn>
+            <div className="space-y-2">
+              {d.notes.map(n => (
+                <div key={n.id} className="bg-slate-50 rounded-lg p-3">
+                  <div className="text-xs text-slate-500">{short(n.created_at)}</div>
+                  <div className="text-sm text-slate-800 mt-1">{n.body}</div>
+                </div>
+              ))}
+              {!d.notes.length && <div className="text-sm text-slate-400 text-center py-4">Izoh yo'q</div>}
+            </div>
+            {d.calls.length > 0 && (
+              <div className="pt-3 border-t border-slate-200 space-y-2">
+                <div className="text-xs font-semibold text-slate-600">Qo'ng'iroqlar</div>
+                {d.calls.map(c => (
+                  <div key={c.id} className="bg-slate-50 rounded-lg p-3 text-sm">
+                    {c.direction === "in" ? "Kiruvchi" : "Chiquvchi"} · {dur(c.duration)} · {short(c.created_at)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>}
+
+          {tab === "ai" && <>
+            <Btn className="w-full" onClick={runAi}>{ai ? "Qayta tahlil qilish" : "Suhbatni tahlil qilish"}</Btn>
+            {!ai ? <div className="text-sm text-slate-400 text-center py-8">
+              Tahlil qilinmagan. Tugmani bosing — tizim lid yuritilishini skript bilan solishtiradi.
+            </div> : <>
+              <div className="flex items-center gap-4 bg-slate-50 rounded-xl p-4">
+                <Ring score={ai.score} />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-900">Lid sifati: {ai.quality}</div>
+                  <div className="text-xs text-slate-600 mt-1">{ai.summary}</div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {ai.checks.map((c, i) => (
+                  <div key={i} className="flex items-start gap-2.5 text-sm">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-xs ${c.ok ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
+                      {c.ok ? "✓" : "×"}</span>
+                    <span className="text-slate-800">{c.name}</span>
+                  </div>
+                ))}
+              </div>
+              {ai.mistakes?.length > 0 && <div>
+                <div className="text-xs font-semibold text-red-600 mb-2">Kamchiliklar</div>
+                {ai.mistakes.map((m, i) => (
+                  <div key={i} className="text-sm text-slate-800 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-1.5">{m}</div>
+                ))}
+              </div>}
+              {ai.advice?.length > 0 && <div>
+                <div className="text-xs font-semibold text-blue-700 mb-2">Tavsiyalar</div>
+                {ai.advice.map((m, i) => (
+                  <div key={i} className="text-sm text-slate-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-1.5">{m}</div>
+                ))}
+              </div>}
+            </>}
+          </>}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+/* ================= Bo'limlar ================= */
+
+function Dashboard({ leads, stages, tasks, people }) {
+  const sum = leads.filter(l => !/yo'qot|lost/i.test(stages.find(s => s.id === l.stage_id)?.name || ""))
+    .reduce((a, b) => a + Number(b.budget), 0);
+  const openT = tasks.filter(t => !t.done);
+  const overdue = openT.filter(t => t.due_date < today());
+  const byStage = stages.map(s => ({ n: s.name, v: leads.filter(l => l.stage_id === s.id).length, c: s.color }));
+  const kpi = [["Lidlar", leads.length], ["Varonka summasi", money(sum)],
+  ["Ochiq zadacha", openT.length], ["Muddati o'tgan", overdue.length]];
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {kpi.map(([k, v]) => (
+          <Card key={k} className="p-4">
+            <div className="text-xs text-slate-500">{k}</div>
+            <div className="text-base font-bold text-slate-900 mt-1 break-words">{v}</div>
+          </Card>
+        ))}
+      </div>
+      <Card className="p-4">
+        <div className="text-sm font-semibold text-slate-900 mb-2">Bosqichlar bo'yicha lidlar</div>
+        <Bars data={byStage} />
+      </Card>
+      <Card className="p-4">
+        <div className="text-sm font-semibold text-slate-900 mb-3">Menejerlar</div>
+        <div className="space-y-3">
+          {people.map(p => {
+            const mine = leads.filter(l => l.owner_id === p.id);
+            return (
+              <div key={p.id} className="flex items-center gap-3">
+                <Avatar name={p.name} size={30} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-slate-800 truncate">{p.name}</div>
+                  <div className="h-1.5 bg-slate-100 rounded-full mt-1.5">
+                    <div className="h-1.5 bg-blue-600 rounded-full"
+                      style={{ width: `${Math.max(4, (mine.length / Math.max(1, leads.length)) * 100)}%` }} />
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500">{mine.length} lid</div>
+              </div>
+            );
+          })}
+          {!people.length && <div className="text-sm text-slate-400">Menejer yo'q</div>}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function FunnelView({ leads, stages, onOpen, onAdd }) {
+  return (
+    <div className="p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="text-sm text-slate-500">{leads.length} ta lid</div>
+        <Btn className="ml-auto" onClick={onAdd}>+ Lid</Btn>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-6">
+        {stages.map(st => {
+          const items = leads.filter(l => l.stage_id === st.id);
+          return (
+            <div key={st.id} className="w-64 shrink-0 bg-slate-100 rounded-xl">
+              <div className="p-3 border-b border-slate-200">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: st.color }} />
+                  <span className="text-sm font-semibold text-slate-800 truncate">{st.name}</span>
+                  <span className="ml-auto text-xs text-slate-500 bg-white rounded-full px-2">{items.length}</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  {money(items.reduce((a, b) => a + Number(b.budget), 0))}
+                </div>
+              </div>
+              <div className="p-2 space-y-2 min-h-[80px]">
+                {items.map(l => (
+                  <div key={l.id} onClick={() => onOpen(l)}
+                    className="bg-white rounded-lg border border-slate-200 p-3 active:border-blue-400">
+                    <div className="text-sm font-semibold text-slate-900 leading-snug">{l.name}</div>
+                    <div className="text-sm font-bold text-blue-700 mt-1">{money(l.budget)}</div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className="text-[11px] text-slate-500 truncate">{l.phone || "—"}</span>
+                      {l.ai && <span className="ml-auto text-[11px] font-medium shrink-0"
+                        style={{ color: l.ai.score >= 70 ? "#16a34a" : l.ai.score >= 40 ? "#f59e0b" : "#ef4444" }}>
+                        AI {l.ai.score}</span>}
+                    </div>
+                  </div>
+                ))}
+                {!items.length && <div className="text-xs text-slate-400 text-center py-5">Bo'sh</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const TASK_COLS = [
+  { id: "over", name: "Muddati o'tgan", c: "#ef4444" },
+  { id: "today", name: "Bugungi", c: "#2563eb" },
+  { id: "tom", name: "Ertangi", c: "#3b82f6" },
+  { id: "week", name: "Keyingi 7 kun", c: "#60a5fa" },
+  { id: "later", name: "Keyinroq", c: "#94a3b8" },
+  { id: "done", name: "Bajarilgan", c: "#16a34a" },
+];
+const taskCol = t => {
+  if (t.done) return "done";
+  const d = t.due_date, td = today();
+  if (!d) return "later";
+  if (d < td) return "over";
+  if (d === td) return "today";
+  if (d === shift(1)) return "tom";
+  if (d <= shift(7)) return "week";
+  return "later";
+};
+
+function TasksBoard({ tasks, leads, onOpen, onMove }) {
+  return (
+    <div className="p-4">
+      <div className="text-sm text-slate-500 mb-3">Zadachani boshqa muddatga ko'chirish uchun ustiga bosing</div>
+      <div className="flex gap-3 overflow-x-auto pb-6">
+        {TASK_COLS.map(col => {
+          const items = tasks.filter(t => taskCol(t) === col.id)
+            .sort((a, b) => (a.due_date + a.due_time).localeCompare(b.due_date + b.due_time));
+          return (
+            <div key={col.id} className="w-60 shrink-0 bg-slate-100 rounded-xl">
+              <div className="p-3 border-b border-slate-200 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: col.c }} />
+                <span className="text-sm font-semibold text-slate-800 truncate">{col.name}</span>
+                <span className="ml-auto text-xs text-slate-500 bg-white rounded-full px-2">{items.length}</span>
+              </div>
+              <div className="p-2 space-y-2 min-h-[80px]">
+                {items.map(t => {
+                  const lead = leads.find(l => l.id === t.lead_id);
+                  return (
+                    <div key={t.id} onClick={() => onMove(t)}
+                      className="bg-white rounded-lg border border-slate-200 p-3 active:border-blue-400">
+                      <div className={`text-sm ${t.done ? "line-through text-slate-400" : "text-slate-900"}`}>{t.body}</div>
+                      {lead && <div className="text-[11px] text-slate-500 mt-1 truncate">{lead.name}</div>}
+                      <div className={`text-[11px] mt-1 tabular-nums ${col.id === "over" ? "text-red-600 font-medium" : "text-slate-500"}`}>
+                        {t.due_date} {String(t.due_time).slice(0, 5)}
+                      </div>
+                    </div>
+                  );
+                })}
+                {!items.length && <div className="text-xs text-slate-400 text-center py-5">Bo'sh</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ContactsView({ contacts, companies, reload, setMsg }) {
+  const [tab, setTab] = useState("c");
+  const [add, setAdd] = useState(false);
+  const [f, setF] = useState({ name: "", phone: "", email: "", position_title: "", company_id: "", site: "", address: "" });
+
+  const save = async () => {
+    if (!f.name.trim()) return;
+    const p = tab === "c"
+      ? db.from("contacts").insert({ name: f.name, phone: f.phone, email: f.email, position_title: f.position_title, company_id: f.company_id || null })
+      : db.from("companies").insert({ name: f.name, phone: f.phone, site: f.site, address: f.address });
+    const { error } = await p;
+    if (error) return setMsg(humanError(error));
+    setF({ name: "", phone: "", email: "", position_title: "", company_id: "", site: "", address: "" });
+    setAdd(false); reload();
+  };
+
+  const del = async (t, id) => { await db.from(t).delete().eq("id", id); reload(); };
+
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+          {[["c", "Kontaktlar"], ["k", "Kompaniyalar"]].map(([k, t]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`text-xs px-4 py-2 rounded-md font-medium ${tab === k ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>{t}</button>
+          ))}
+        </div>
+        <Btn className="ml-auto" onClick={() => setAdd(true)}>+ Qo'shish</Btn>
+      </div>
+
+      <Card className="divide-y divide-slate-100">
+        {(tab === "c" ? contacts : companies).map(x => (
+          <div key={x.id} className="flex items-center gap-3 p-4">
+            <Avatar name={x.name} size={36} />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-slate-900 truncate">{x.name}</div>
+              <div className="text-xs text-slate-500 truncate">
+                {tab === "c"
+                  ? `${x.position_title || "—"} · ${companies.find(c => c.id === x.company_id)?.name || "kompaniyasiz"}`
+                  : x.address || "—"}
+              </div>
+            </div>
+            <div className="text-xs text-slate-600 hidden sm:block">{x.phone}</div>
+            <button className="text-slate-400 px-2" onClick={() => del(tab === "c" ? "contacts" : "companies", x.id)}>×</button>
+          </div>
+        ))}
+        {!(tab === "c" ? contacts : companies).length &&
+          <div className="p-8 text-center text-sm text-slate-400">Ro'yxat bo'sh</div>}
+      </Card>
+
+      <Sheet open={add} onClose={() => setAdd(false)}>
+        <div className="p-5 space-y-3">
+          <div className="text-lg font-bold text-slate-900">{tab === "c" ? "Yangi kontakt" : "Yangi kompaniya"}</div>
+          <Input placeholder="Nomi" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+          <Input placeholder="Telefon" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} />
+          {tab === "c" ? <>
+            <Input placeholder="Email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
+            <Input placeholder="Lavozimi" value={f.position_title} onChange={e => setF({ ...f, position_title: e.target.value })} />
+            <Select value={f.company_id} onChange={e => setF({ ...f, company_id: e.target.value })}>
+              <option value="">Kompaniyasiz</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </> : <>
+            <Input placeholder="Sayt" value={f.site} onChange={e => setF({ ...f, site: e.target.value })} />
+            <Input placeholder="Manzil" value={f.address} onChange={e => setF({ ...f, address: e.target.value })} />
+          </>}
+          <Btn className="w-full" onClick={save}>Saqlash</Btn>
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+function ProductsView({ products, reload, can, setMsg }) {
+  const [f, setF] = useState({ name: "", sku: "", price: "", unit: "dona" });
+  const save = async () => {
+    if (!f.name.trim() || !f.price) return;
+    const { error } = await db.from("products").insert({ ...f, price: Number(f.price) });
+    if (error) return setMsg(humanError(error));
+    setF({ name: "", sku: "", price: "", unit: "dona" }); reload();
+  };
+  return (
+    <div className="p-4 space-y-3">
+      {can("products_manage") && (
+        <Card className="p-4 space-y-2">
+          <Input placeholder="Nomi" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+          <div className="flex gap-2">
+            <Input placeholder="Artikul" value={f.sku} onChange={e => setF({ ...f, sku: e.target.value })} />
+            <Input placeholder="Narxi" type="number" inputMode="numeric" value={f.price}
+              onChange={e => setF({ ...f, price: e.target.value })} />
+          </div>
+          <Select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}>
+            <option>dona</option><option>xizmat</option><option>soat</option><option>oy</option>
+          </Select>
+          <Btn className="w-full" onClick={save}>Qo'shish</Btn>
+        </Card>
+      )}
+      <Card className="divide-y divide-slate-100">
+        {products.map(p => (
+          <div key={p.id} className="flex items-center gap-3 p-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-slate-900">{p.name}</div>
+              <div className="text-xs text-slate-500">{p.sku || "—"} · {p.unit}</div>
+            </div>
+            <div className="text-sm font-semibold text-slate-900">{money(p.price)}</div>
+            {can("products_manage") && (
+              <button className="text-slate-400 px-2"
+                onClick={async () => { await db.from("products").delete().eq("id", p.id); reload(); }}>×</button>
+            )}
+          </div>
+        ))}
+        {!products.length && <div className="p-8 text-center text-sm text-slate-400">Mahsulot yo'q</div>}
+      </Card>
+    </div>
+  );
+}
+
+function SettingsView({ funnels, stages, robots, people, tenant, reload, setMsg, setTab }) {
+  const [sec, setSec] = useState("funnels");
+  const [colorFor, setColorFor] = useState(null);
+  const [nr, setNr] = useState({ funnel_id: funnels[0]?.id || "", stage_id: "", action: "task", value: "" });
+
+  const upd = async (t, id, patch) => {
+    const { error } = await db.from(t).update(patch).eq("id", id);
+    if (error) setMsg(humanError(error)); else reload();
+  };
+  const del = async (t, id) => { const { error } = await db.from(t).delete().eq("id", id); if (error) setMsg(humanError(error)); else reload(); };
+
+  const secs = [["funnels", "Varonkalar"], ["robots", "Avtomatizatsiya"], ["users", "Xodimlar"]];
+
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit overflow-x-auto max-w-full">
+        {secs.map(([k, t]) => (
+          <button key={k} onClick={() => setSec(k)}
+            className={`text-xs px-4 py-2 rounded-md font-medium whitespace-nowrap ${sec === k ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>{t}</button>
+        ))}
+      </div>
+
+      {sec === "funnels" && <>
+        {funnels.map(f => (
+          <Card key={f.id} className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Input value={f.name} className="flex-1"
+                onChange={e => upd("funnels", f.id, { name: e.target.value })} />
+              {funnels.length > 1 && <button className="text-slate-400 px-2" onClick={() => del("funnels", f.id)}>×</button>}
+            </div>
+            <div className="space-y-2">
+              {stages.filter(s => s.funnel_id === f.id).map(s => (
+                <div key={s.id}>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setColorFor(colorFor === s.id ? null : s.id)}
+                      className="w-6 h-6 rounded-full shrink-0 ring-1 ring-slate-300"
+                      style={{ background: s.color }} />
+                    <Input value={s.name} className="flex-1"
+                      onChange={e => upd("stages", s.id, { name: e.target.value })} />
+                    <button className="text-slate-400 px-2" onClick={() => del("stages", s.id)}>×</button>
+                  </div>
+                  {colorFor === s.id && (
+                    <div className="flex gap-1.5 flex-wrap mt-2 p-2 bg-slate-50 rounded-lg">
+                      {PALETTE.map(c => (
+                        <button key={c} onClick={() => { upd("stages", s.id, { color: c }); setColorFor(null); }}
+                          className="w-7 h-7 rounded-lg" style={{ background: c }} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <Btn kind="ghost" size="sm" onClick={async () => {
+                const pos = stages.filter(s => s.funnel_id === f.id).length;
+                await db.from("stages").insert({ funnel_id: f.id, name: "Yangi bosqich", color: "#3b82f6", position: pos });
+                reload();
+              }}>+ Bosqich</Btn>
+            </div>
+          </Card>
+        ))}
+        <Btn onClick={async () => {
+          const { data, error } = await db.from("funnels").insert({ name: "Yangi varonka", position: funnels.length }).select().single();
+          if (error) return setMsg(humanError(error));
+          await db.from("stages").insert([
+            { funnel_id: data.id, name: "Kiruvchi", color: "#60a5fa", position: 0 },
+            { funnel_id: data.id, name: "Yopildi", color: "#16a34a", position: 1 },
+          ]);
+          reload();
+        }}>+ Varonka qo'shish</Btn>
+      </>}
+
+      {sec === "robots" && <>
+        <Card className="p-4 space-y-2">
+          <div className="text-sm font-semibold text-slate-900">Yangi qoida</div>
+          <Select value={nr.funnel_id} onChange={e => setNr({ ...nr, funnel_id: e.target.value, stage_id: "" })}>
+            {funnels.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </Select>
+          <Select value={nr.stage_id} onChange={e => setNr({ ...nr, stage_id: e.target.value })}>
+            <option value="">Bosqich tanlang…</option>
+            {stages.filter(s => s.funnel_id === nr.funnel_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </Select>
+          <Select value={nr.action} onChange={e => setNr({ ...nr, action: e.target.value })}>
+            <option value="task">Zadacha yaratish</option>
+            <option value="sms">SMS yuborish</option>
+            <option value="telegram">Telegram yuborish</option>
+          </Select>
+          <Input placeholder="Matn" value={nr.value} onChange={e => setNr({ ...nr, value: e.target.value })} />
+          <Btn className="w-full" onClick={async () => {
+            if (!nr.stage_id || !nr.value.trim()) return;
+            const { error } = await db.from("robots").insert(nr);
+            if (error) return setMsg(humanError(error));
+            setNr({ ...nr, stage_id: "", value: "" }); reload();
+          }}>Qoida qo'shish</Btn>
+          <div className="text-xs text-slate-500">Lid shu bosqichga o'tganda amal avtomatik bajariladi.</div>
+        </Card>
+        <Card className="divide-y divide-slate-100">
+          {robots.map(r => {
+            const s = stages.find(x => x.id === r.stage_id);
+            return (
+              <div key={r.id} className="flex items-center gap-3 p-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-slate-900">
+                    <span className="font-medium">{s?.name || "?"}</span>
+                    <span className="text-slate-500"> → {{ task: "zadacha", sms: "SMS", telegram: "Telegram" }[r.action]}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 truncate">{r.value}</div>
+                </div>
+                <Toggle on={r.enabled} onChange={v => upd("robots", r.id, { enabled: v })} />
+                <button className="text-slate-400 px-2" onClick={() => del("robots", r.id)}>×</button>
+              </div>
+            );
+          })}
+          {!robots.length && <div className="p-8 text-center text-sm text-slate-400">Qoida yo'q</div>}
+        </Card>
+      </>}
+
+      {sec === "users" && <>
+        <Card className="p-4">
+          <div className="text-sm text-slate-700">
+            Tarif: <span className="font-semibold">{tenant?.tariff}</span> ·
+            Foydalanuvchi: <span className="font-semibold">{people.length} / {tenant?.user_limit}</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-2">
+            Yangi xodim qo'shish Supabase panelidan bajariladi (Authentication → Users), keyin bu yerda huquqlari sozlanadi.
+          </div>
+        </Card>
+        {people.map(p => (
+          <Card key={p.id} className="p-4">
+            <div className="flex items-center gap-3">
+              <Avatar name={p.name} size={36} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-slate-900 truncate">{p.name}</div>
+                <div className="text-xs text-slate-500 truncate">{p.email} · {p.role === "admin" ? "Admin" : "Menejer"}</div>
+              </div>
+              {p.role !== "admin" && <Toggle on={p.active} onChange={v => upd("profiles", p.id, { active: v })} />}
+            </div>
+            {p.role === "manager" && (
+              <div className="mt-3 pt-3 border-t border-slate-100 grid sm:grid-cols-2 gap-2">
+                {PERMS.map(([k, label]) => (
+                  <label key={k} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" className="w-4 h-4 accent-blue-600"
+                      checked={(p.perms || []).includes(k)}
+                      onChange={e => upd("profiles", p.id, {
+                        perms: e.target.checked ? [...(p.perms || []), k] : (p.perms || []).filter(x => x !== k)
+                      })} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </Card>
+        ))}
+      </>}
+    </div>
+  );
+}
+
+/* ================= Ish maydoni ================= */
+
+function Workspace({ profile, onLogout }) {
+  const [tab, setTab] = useState("funnel");
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [tenant, setTenant] = useState(null);
+  const [funnels, setFunnels] = useState([]);
+  const [fid, setFid] = useState(null);
+  const [stages, setStages] = useState([]);
+  const [leads, setLeads] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [people, setPeople] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [robots, setRobots] = useState([]);
+  const [open, setOpen] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [nl, setNl] = useState({ name: "", phone: "", budget: "" });
+
+  const can = k => profile.role === "admin" || (profile.perms || []).includes(k);
+
+  const load = useCallback(async () => {
+    const [t, f, s, l, tk, p, pr, c, co, r] = await Promise.all([
+      db.from("tenants").select("*").limit(1).maybeSingle(),
+      db.from("funnels").select("*").order("position"),
+      db.from("stages").select("*").order("position"),
+      db.from("leads").select("*").order("created_at", { ascending: false }),
+      db.from("tasks").select("*").order("due_date"),
+      db.from("profiles").select("*").order("name"),
+      db.from("products").select("*").order("name"),
+      db.from("contacts").select("*").order("name"),
+      db.from("companies").select("*").order("name"),
+      db.from("robots").select("*"),
+    ]);
+    const err = [t, f, s, l, tk, p, pr, c, co, r].find(x => x.error);
+    if (err) setMsg(humanError(err.error));
+    setTenant(t.data); setFunnels(f.data || []); setStages(s.data || []);
+    setLeads(l.data || []); setTasks(tk.data || []); setPeople(p.data || []);
+    setProducts(pr.data || []); setContacts(c.data || []); setCompanies(co.data || []);
+    setRobots(r.data || []);
+    setFid(prev => prev || f.data?.[0]?.id || null);
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const curStages = stages.filter(s => s.funnel_id === fid);
+  const curLeads = leads.filter(l => l.funnel_id === fid);
+  const managers = people.filter(p => p.role === "manager" && p.active);
+  const scenario = ["Salomlashish va tanishtirish", "Ehtiyojni aniqlash", "Byudjet muhokamasi",
+    "Afzalliklarni tushuntirish", "E'tirozlar bilan ishlash", "Keyingi qadam kelishuvi", "Yakuniy tasdiq"];
+
+  const addLead = async () => {
+    if (!nl.name.trim()) return;
+    const { error } = await db.from("leads").insert({
+      name: nl.name.trim(), phone: nl.phone.trim() || null, budget: Number(nl.budget) || 0,
+      funnel_id: fid, stage_id: curStages[0]?.id, owner_id: profile.id, source: "Qo'lda",
+    });
+    if (error) return setMsg(humanError(error));
+    setNl({ name: "", phone: "", budget: "" }); setAdding(false); load();
+  };
+
+  const moveTask = async (t) => {
+    const order = ["over", "today", "tom", "week", "later", "done"];
+    const next = order[(order.indexOf(taskCol(t)) + 1) % order.length];
+    const patch = next === "done" ? { done: true }
+      : { done: false, due_date: next === "over" ? shift(-1) : next === "today" ? today()
+        : next === "tom" ? shift(1) : next === "week" ? shift(3) : shift(14) };
+    const { error } = await db.from("tasks").update(patch).eq("id", t.id);
+    if (error) setMsg(humanError(error)); else load();
+  };
+
+  const nav = [
+    ["dash", "Dashboard"], ["funnel", "Varonka"], ["tasks", "Zadachalar"],
+    ["contacts", "Kontaktlar"], ["products", "Mahsulotlar"],
+    ...(can("settings_access") ? [["settings", "Sozlamalar"]] : []),
+  ];
+
+  return (
+    <div className="min-h-screen pb-6">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div className="px-4 py-3 flex items-center gap-3">
+          <div className="min-w-0">
+            <div className="font-bold text-blue-700 truncate">{tenant?.name || "UzCRM"}</div>
+            <div className="text-xs text-slate-500 truncate">{profile.name}</div>
+          </div>
+          <button onClick={onLogout} className="ml-auto text-sm text-slate-500 shrink-0">Chiqish</button>
+        </div>
+        <div className="flex gap-1 px-3 pb-2 overflow-x-auto">
+          {nav.map(([k, t]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`text-sm px-3 py-1.5 rounded-lg font-medium whitespace-nowrap ${tab === k ? "bg-blue-600 text-white" : "text-slate-600"}`}>{t}</button>
+          ))}
+        </div>
+        {funnels.length > 1 && (tab === "funnel" || tab === "dash") && (
+          <div className="flex gap-1 px-3 pb-2 overflow-x-auto border-t border-slate-100 pt-2">
+            {funnels.map(f => (
+              <button key={f.id} onClick={() => setFid(f.id)}
+                className={`text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap ${fid === f.id ? "bg-slate-200 text-slate-900" : "text-slate-500"}`}>{f.name}</button>
+            ))}
+          </div>
+        )}
+      </header>
+
+      {msg && <div className="mx-4 mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2.5 flex gap-2">
+        <span className="flex-1">{msg}</span>
+        <button onClick={() => setMsg("")}>×</button>
+      </div>}
+
+      {loading ? <Spinner /> : <>
+        {tab === "dash" && <Dashboard leads={curLeads} stages={curStages} tasks={tasks} people={managers} />}
+        {tab === "funnel" && (curStages.length
+          ? <FunnelView leads={curLeads} stages={curStages} onOpen={setOpen} onAdd={() => setAdding(true)} />
+          : <div className="p-4"><Empty title="Varonka topilmadi" hint="Sozlamalar bo'limidan varonka qo'shing." /></div>)}
+        {tab === "tasks" && <TasksBoard tasks={tasks} leads={leads} onOpen={setOpen} onMove={moveTask} />}
+        {tab === "contacts" && <ContactsView contacts={contacts} companies={companies} reload={load} setMsg={setMsg} />}
+        {tab === "products" && <ProductsView products={products} reload={load} can={can} setMsg={setMsg} />}
+        {tab === "settings" && <SettingsView funnels={funnels} stages={stages} robots={robots}
+          people={people} tenant={tenant} reload={load} setMsg={setMsg} setTab={setTab} />}
+      </>}
+
+      <Sheet open={!!open} onClose={() => setOpen(null)} wide>
+        {open && <LeadSheet lead={open} stages={curStages} people={managers} products={products}
+          scenario={scenario} can={can} onClose={() => setOpen(null)} onSaved={load} />}
+      </Sheet>
+
+      <Sheet open={adding} onClose={() => setAdding(false)}>
+        <div className="p-5 space-y-3">
+          <div className="text-lg font-bold text-slate-900">Yangi lid</div>
+          <Input placeholder="Lid nomi" value={nl.name} onChange={e => setNl({ ...nl, name: e.target.value })} />
+          <Input placeholder="Telefon" type="tel" value={nl.phone} onChange={e => setNl({ ...nl, phone: e.target.value })} />
+          <Input placeholder="Byudjet" type="number" inputMode="numeric" value={nl.budget}
+            onChange={e => setNl({ ...nl, budget: e.target.value })} />
+          <Btn className="w-full" onClick={addLead}>Saqlash</Btn>
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+/* ================= Asosiy ================= */
+
+function App() {
+  const [session, setSession] = useState(undefined);
+  const [profile, setProfile] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!db) return;
+    db.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = db.auth.onAuthStateChange((_e, s) => { setSession(s); setProfile(null); setErr(""); });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!session || !db) return;
+    db.from("profiles").select("*").eq("id", session.user.id).maybeSingle().then(({ data, error }) => {
+      if (error) setErr(humanError(error));
+      else if (!data) setErr("Hisobingiz tizimga ulanmagan. Administratorga murojaat qiling.");
+      else setProfile(data);
+    });
+  }, [session]);
+
+  const logout = () => db.auth.signOut();
+
+  if (!SUPABASE_URL || SUPABASE_URL.includes("BU_YERGA") || !SUPABASE_ANON_KEY) return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="max-w-sm text-center">
+        <div className="text-lg font-bold text-slate-900">Sozlama kiritilmagan</div>
+        <div className="text-sm text-slate-600 mt-2">
+          <code className="bg-slate-100 px-1 rounded">config.js</code> fayli topilmadi yoki noto'g'ri.
+        </div>
+      </div>
+    </div>
+  );
+
+  if (session === undefined) return <Spinner />;
+  if (!session) return <Login />;
+  if (err) return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="max-w-sm text-center">
+        <div className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{err}</div>
+        <button onClick={logout} className="text-sm text-slate-500 mt-4">Chiqish</button>
+      </div>
+    </div>
+  );
+  if (!profile) return <Spinner />;
+  if (profile.role === "owner") return <OwnerPanel onLogout={logout} />;
+  return <Workspace profile={profile} onLogout={logout} />;
+}
+
+try {
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+} catch (e) { window.__err(e && e.message ? e.message : e); }
+
+</script>
+</body>
+</html>
